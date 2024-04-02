@@ -129,6 +129,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const float tan_fovx,
 	const float tan_fovy,
     const torch::Tensor& dL_dout_color,
+	const torch::Tensor& grad_perchannel_weights,
 	const torch::Tensor& sh,
 	const int degree,
 	const torch::Tensor& campos,
@@ -157,6 +158,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   torch::Tensor dL_dsh = torch::zeros({P, M, 3}, means3D.options());
   torch::Tensor dL_dscales = torch::zeros({P, 3}, means3D.options());
   torch::Tensor dL_drotations = torch::zeros({P, 4}, means3D.options());
+
+  TORCH_CHECK(grad_perchannel_weights.size(0) == NUM_CHANNELS, "grad_perchannel_weights must have size NUM_CHANNELS");
   
   if(P != 0)
   {  
@@ -180,6 +183,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  reinterpret_cast<char*>(binningBuffer.contiguous().data_ptr()),
 	  reinterpret_cast<char*>(imageBuffer.contiguous().data_ptr()),
 	  dL_dout_color.contiguous().data<float>(),
+	  grad_perchannel_weights.contiguous().data<float>(),
 	  dL_dmeans2D.contiguous().data<float>(),
 	  dL_dconic.contiguous().data<float>(),  
 	  dL_dopacity.contiguous().data<float>(),

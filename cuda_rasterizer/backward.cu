@@ -409,6 +409,7 @@ renderCUDA(
 	const float* __restrict__ final_Ts,
 	const uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ dL_dpixels,
+	const float* __restrict__ grad_perchannel_weights,
 	float3* __restrict__ dL_dmean2D,
 	float4* __restrict__ dL_dconic2D,
 	float* __restrict__ dL_dopacity,
@@ -516,7 +517,7 @@ renderCUDA(
 				last_color[ch] = c;
 
 				const float dL_dchannel = dL_dpixel[ch];
-				dL_dalpha += (c - accum_rec[ch]) * dL_dchannel;
+				dL_dalpha += (c - accum_rec[ch]) * dL_dchannel * grad_perchannel_weights[ch];
 				// Update the gradients w.r.t. color of the Gaussian. 
 				// Atomic, since this pixel is just one of potentially
 				// many that were affected by this Gaussian.
@@ -633,6 +634,7 @@ void BACKWARD::render(
 	const float* final_Ts,
 	const uint32_t* n_contrib,
 	const float* dL_dpixels,
+	const float* grad_perchannel_weights,
 	float3* dL_dmean2D,
 	float4* dL_dconic2D,
 	float* dL_dopacity,
@@ -649,6 +651,7 @@ void BACKWARD::render(
 		final_Ts,
 		n_contrib,
 		dL_dpixels,
+		grad_perchannel_weights,
 		dL_dmean2D,
 		dL_dconic2D,
 		dL_dopacity,
