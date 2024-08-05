@@ -159,6 +159,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const float scale_modifier,
 	const glm::vec4* rotations,
 	const float* opacities,
+	const float* lancities, ///////
 	const float* shs,
 	bool* clamped,
 	const float* cov3D_precomp,
@@ -175,6 +176,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	float* cov3Ds,
 	float* rgb,
 	float4* conic_opacity,
+	float4* langu_opacity, ///////
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	bool prefiltered)
@@ -252,6 +254,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	points_xy_image[idx] = point_image;
 	// Inverse 2D covariance and opacity neatly pack into one float4
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
+	langu_opacity[idx] = { conic.x, conic.y, conic.z, lancities[idx] };
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }
 
@@ -267,6 +270,7 @@ renderCUDA(
 	const float2* __restrict__ points_xy_image,
 	const float* __restrict__ features,
 	const float4* __restrict__ conic_opacity,
+	const float4* __restrict__ langu_opacity,
 	float* __restrict__ final_T,
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
@@ -295,9 +299,11 @@ renderCUDA(
 	__shared__ int collected_id[BLOCK_SIZE];
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
+	__shared__ float4 collected_langu_opacity[BLOCK_SIZE];
 
 	// Initialize helper variables
 	float T = 1.0f;
+	float LT = 1.0f;
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
@@ -318,6 +324,7 @@ renderCUDA(
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
+			collected_langu_opacity[block.thread_rank()] = langu_opacity[coll_id];
 		}
 		block.sync();
 
@@ -332,6 +339,7 @@ renderCUDA(
 			float2 xy = collected_xy[j];
 			float2 d = { xy.x - pixf.x, xy.y - pixf.y };
 			float4 con_o = collected_conic_opacity[j];
+			float4 lan_o = collected_langu_opacity[j];
 			float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y;
 			if (power > 0.0f)
 				continue;
@@ -341,20 +349,32 @@ renderCUDA(
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
 			float alpha = min(0.99f, con_o.w * exp(power));
+			float lapha = min(0.99f, lan_o.w * exp(power));
 			if (alpha < 1.0f / 255.0f)
 				continue;
+			if (lapha < 1.0f / 255.0f)
+				continue;
 			float test_T = T * (1 - alpha);
+			float lang_T = LT * (1 - lapha);
 			if (test_T < 0.0001f)
+			{
+				done = true;
+				continue;
+			}
+			if (lang_T < 0.0001f)
 			{
 				done = true;
 				continue;
 			}
 
 			// Eq. (3) from 3D Gaussian splatting paper.
-			for (int ch = 0; ch < CHANNELS; ch++)
+			for (int ch = 0; ch < 3; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
+			for (int ch = 3; ch < CHANNELS; ch++)
+				C[ch] += features[collected_id[j] * CHANNELS + ch] * lapha * LT;
 
 			T = test_T;
+			LT = lang_T;
 
 			// Keep track of last range entry to update this
 			// pixel.
@@ -368,8 +388,10 @@ renderCUDA(
 	{
 		final_T[pix_id] = T;
 		n_contrib[pix_id] = last_contributor;
-		for (int ch = 0; ch < CHANNELS; ch++)
+		for (int ch = 0; ch < 3; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		for (int ch = 3; ch < CHANNELS; ch++)
+			out_color[ch * H * W + pix_id] = C[ch] + LT * bg_color[ch];
 	}
 }
 
@@ -381,6 +403,7 @@ void FORWARD::render(
 	const float2* means2D,
 	const float* colors,
 	const float4* conic_opacity,
+	const float4* langu_opacity,
 	float* final_T,
 	uint32_t* n_contrib,
 	const float* bg_color,
@@ -393,6 +416,7 @@ void FORWARD::render(
 		means2D,
 		colors,
 		conic_opacity,
+		langu_opacity,
 		final_T,
 		n_contrib,
 		bg_color,
@@ -405,6 +429,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	const float scale_modifier,
 	const glm::vec4* rotations,
 	const float* opacities,
+	const float* lancities,
 	const float* shs,
 	bool* clamped,
 	const float* cov3D_precomp,
@@ -421,6 +446,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	float* cov3Ds,
 	float* rgb,
 	float4* conic_opacity,
+	float4* langu_opacity,
 	const dim3 grid,
 	uint32_t* tiles_touched,
 	bool prefiltered)
@@ -432,6 +458,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		scale_modifier,
 		rotations,
 		opacities,
+		lancities,
 		shs,
 		clamped,
 		cov3D_precomp,
@@ -448,6 +475,7 @@ void FORWARD::preprocess(int P, int D, int M,
 		cov3Ds,
 		rgb,
 		conic_opacity,
+		langu_opacity,
 		grid,
 		tiles_touched,
 		prefiltered
