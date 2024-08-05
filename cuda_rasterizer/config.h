@@ -12,7 +12,7 @@
 #ifndef CUDA_RASTERIZER_CONFIG_H_INCLUDED
 #define CUDA_RASTERIZER_CONFIG_H_INCLUDED
 
-#define NUM_CHANNELS 12 // RGB 3 + clip feature index 8 + uncertainty 1
+#define NUM_CHANNELS 6 // RGB 3 + clip feature index 3
 #define BLOCK_X 16
 #define BLOCK_Y 16
 
