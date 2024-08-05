@@ -390,10 +390,10 @@ renderCUDA(
 		final_T[pix_id] = T;
 		final_LT[pix_id] = LT; ///////
 		n_contrib[pix_id] = last_contributor;
-		for (int ch = 0; ch < 3; ch++)
-			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		for (int ch = 0; ch < 3; ch++) ///////
+			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch]; ///////
 		for (int ch = 3; ch < CHANNELS; ch++)
-			out_color[ch * H * W + pix_id] = C[ch] + LT * bg_color[ch];
+			out_color[ch * H * W + pix_id] = C[ch] + LT * bg_color[ch]; ///////
 	}
 }
 
