@@ -28,6 +28,7 @@ namespace BACKWARD
 		const float* bg_color,
 		const float2* means2D,
 		const float4* conic_opacity,
+		const float4* langu_opacity, ///////
 		const float* colors,
 		const float* final_Ts,
 		const uint32_t* n_contrib,
@@ -36,6 +37,7 @@ namespace BACKWARD
 		float3* dL_dmean2D,
 		float4* dL_dconic2D,
 		float* dL_dopacity,
+		float* dL_dlancity, ///////
 		float* dL_dcolors);
 
 	void preprocess(
