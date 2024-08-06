@@ -408,6 +408,7 @@ renderCUDA(
 	const float4* __restrict__ langu_opacity, ///////
 	const float* __restrict__ colors,
 	const float* __restrict__ final_Ts,
+	const float* __restrict__ final_LTs, ///////
 	const uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ dL_dpixels,
 	const float* __restrict__ grad_perchannel_weights,
@@ -437,12 +438,16 @@ renderCUDA(
 	__shared__ int collected_id[BLOCK_SIZE];
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
+	__shared__ float4 collected_langu_opacity[BLOCK_SIZE]; ///////
 	__shared__ float collected_colors[C * BLOCK_SIZE];
 
 	// In the forward, we stored the final value for T, the
 	// product of all (1 - alpha) factors. 
 	const float T_final = inside ? final_Ts[pix_id] : 0;
 	float T = T_final;
+
+	const float LT_final = inside ? final_LTs[pix_id] : 0; ///////
+	float LT = LT_final; ///////
 
 	// We start from the back. The ID of the last contributing
 	// Gaussian is known from each pixel from the forward.
@@ -456,6 +461,8 @@ renderCUDA(
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
 
 	float last_alpha = 0;
+	float last_lapha = 0; ///////
+
 	float last_color[C] = { 0 };
 
 	// Gradient of pixel coordinate w.r.t. normalized 
@@ -476,6 +483,7 @@ renderCUDA(
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
+			collected_langu_opacity[block.thread_rank()] = langu_opacity[coll_id]; ///////
 			for (int i = 0; i < C; i++)
 				collected_colors[i * BLOCK_SIZE + block.thread_rank()] = colors[coll_id * C + i];
 		}
@@ -494,6 +502,7 @@ renderCUDA(
 			const float2 xy = collected_xy[j];
 			const float2 d = { xy.x - pixf.x, xy.y - pixf.y };
 			const float4 con_o = collected_conic_opacity[j];
+			const float4 lan_o = collected_langu_opacity[j];
 			const float power = -0.5f * (con_o.x * d.x * d.x + con_o.z * d.y * d.y) - con_o.y * d.x * d.y;
 			if (power > 0.0f)
 				continue;
@@ -503,15 +512,21 @@ renderCUDA(
 			if (alpha < 1.0f / 255.0f)
 				continue;
 
+			const float lapha = min(0.99f, lan_o.w * G); ///////
+			if (lapha < 1.0f / 255.0f) ///////
+				continue; ///////
+
 			T = T / (1.f - alpha);
+			LT = LT / (1.f - lapha);
 			const float dchannel_dcolor = alpha * T;
+			const float dchannel_dlangu = lapha * LT; ///////
 
 			// Propagate gradients to per-Gaussian colors and keep
 			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel
 			// pair).
 			float dL_dalpha = 0.0f;
 			const int global_id = collected_id[j];
-			for (int ch = 0; ch < C; ch++)
+			for (int ch = 0; ch < 3; ch++)
 			{
 				const float c = collected_colors[ch * BLOCK_SIZE + j];
 				// Update last color (to be used in the next iteration)
@@ -529,16 +544,45 @@ renderCUDA(
 			// Update last alpha (to be used in the next iteration)
 			last_alpha = alpha;
 
+			// Propagate gradients to per-Gaussian languages and keep
+			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel
+			// pair).
+			float dL_dlapha = 0.0f; ///////
+			//const int global_id = collected_id[j];
+			for (int ch = 3; ch < C; ch++)
+			{
+				const float c = collected_colors[ch * BLOCK_SIZE + j];
+				// Update last color (to be used in the next iteration)
+				accum_rec[ch] = last_lapha * last_color[ch] + (1.f - last_lapha) * accum_rec[ch]; ///////
+				last_color[ch] = c;
+
+				//const float dL_dchannel = dL_dpixel[ch];
+				dL_dchannel = dL_dpixel[ch];
+				dL_dlapha += (c - accum_rec[ch]) * dL_dchannel * grad_perchannel_weights[ch]; ///////
+				// Update the gradients w.r.t. color of the Gaussian. 
+				// Atomic, since this pixel is just one of potentially
+				// many that were affected by this Gaussian.
+				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dlangu * dL_dchannel);
+			}
+			dL_dlapha *= LT; ///////
+			// Update last lapha (to be used in the next iteration)
+			last_lapha = lapha; ///////
+
 			// Account for fact that alpha also influences how much of
 			// the background color is added if nothing left to blend
 			float bg_dot_dpixel = 0;
-			for (int i = 0; i < C; i++)
+			for (int i = 0; i < 3; i++) ///////
 				bg_dot_dpixel += bg_color[i] * dL_dpixel[i];
 			dL_dalpha += (-T_final / (1.f - alpha)) * bg_dot_dpixel;
 
+			bg_dot_dpixel = 0; ///////
+			for (int i = 3; i < C; i++)
+				bg_dot_dpixel += bg_color[i] * dL_dpixel[i];
+			dL_dlapha += (-LT_final / (1.f - lapha)) * bg_dot_dpixel; ///////
+
 
 			// Helpful reusable temporary variables
-			const float dL_dG = con_o.w * dL_dalpha;
+			const float dL_dG = con_o.w * dL_dalpha + lan_o.w * dL_dlapha; ///////
 			const float gdx = G * d.x;
 			const float gdy = G * d.y;
 			const float dG_ddelx = -gdx * con_o.x - gdy * con_o.y;
@@ -555,6 +599,7 @@ renderCUDA(
 
 			// Update gradients w.r.t. opacity of the Gaussian
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
+			atomicAdd(&(dL_dlancity[global_id]), G * dL_dlapha); ///////
 		}
 	}
 }
