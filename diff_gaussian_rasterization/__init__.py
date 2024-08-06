@@ -220,7 +220,7 @@ class GaussianRasterizer(nn.Module):
             shs,
             colors_precomp,
             opacities,
-            lancities,
+            lancities, #######
             scales, 
             rotations,
             cov3D_precomp,
