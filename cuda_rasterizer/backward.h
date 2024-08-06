@@ -31,6 +31,7 @@ namespace BACKWARD
 		const float4* langu_opacity, ///////
 		const float* colors,
 		const float* final_Ts,
+		const float* final_LTs, ///////
 		const uint32_t* n_contrib,
 		const float* dL_dpixels,
 		const float* grad_perchannel_weights,
