@@ -405,6 +405,7 @@ renderCUDA(
 	const float* __restrict__ bg_color,
 	const float2* __restrict__ points_xy_image,
 	const float4* __restrict__ conic_opacity,
+	const float4* __restrict__ langu_opacity, ///////
 	const float* __restrict__ colors,
 	const float* __restrict__ final_Ts,
 	const uint32_t* __restrict__ n_contrib,
@@ -413,6 +414,7 @@ renderCUDA(
 	float3* __restrict__ dL_dmean2D,
 	float4* __restrict__ dL_dconic2D,
 	float* __restrict__ dL_dopacity,
+	float* __restrict__ dL_dlancity, ///////
 	float* __restrict__ dL_dcolors)
 {
 	// We rasterize again. Compute necessary block info.
@@ -630,6 +632,7 @@ void BACKWARD::render(
 	const float* bg_color,
 	const float2* means2D,
 	const float4* conic_opacity,
+	const float4* langu_opacity, ///////
 	const float* colors,
 	const float* final_Ts,
 	const uint32_t* n_contrib,
@@ -638,6 +641,7 @@ void BACKWARD::render(
 	float3* dL_dmean2D,
 	float4* dL_dconic2D,
 	float* dL_dopacity,
+	float* dL_dlancity, ///////
 	float* dL_dcolors)
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> >(
@@ -647,6 +651,7 @@ void BACKWARD::render(
 		bg_color,
 		means2D,
 		conic_opacity,
+		langu_opacity, ///////
 		colors,
 		final_Ts,
 		n_contrib,
@@ -655,6 +660,7 @@ void BACKWARD::render(
 		dL_dmean2D,
 		dL_dconic2D,
 		dL_dopacity,
+		dL_dlancity, ///////
 		dL_dcolors
 		);
 }
