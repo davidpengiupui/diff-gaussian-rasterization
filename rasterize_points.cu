@@ -200,7 +200,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  debug);
   }
 
-  return std::make_tuple(dL_dmeans2D, dL_dcolors, dL_dopacity, dL_dmeans3D, dL_dcov3D, dL_dsh, dL_dscales, dL_drotations);
+  return std::make_tuple(dL_dmeans2D, dL_dcolors, dL_dopacity, dL_dlancity, dL_dmeans3D, dL_dcov3D, dL_dsh, dL_dscales, dL_drotations); ///////
 }
 
 torch::Tensor markVisible(
