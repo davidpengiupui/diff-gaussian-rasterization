@@ -556,7 +556,7 @@ renderCUDA(
 				accum_rec[ch] = last_lapha * last_color[ch] + (1.f - last_lapha) * accum_rec[ch]; ///////
 				last_color[ch] = c;
 
-				//const float dL_dchannel = dL_dpixel[ch];
+				const float dL_dchannel = dL_dpixel[ch];
 				dL_dchannel = dL_dpixel[ch];
 				dL_dlapha += (c - accum_rec[ch]) * dL_dchannel * grad_perchannel_weights[ch]; ///////
 				// Update the gradients w.r.t. color of the Gaussian. 
