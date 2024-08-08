@@ -85,17 +85,18 @@ def render(viewpoint_camera, pc : GaussianModelNew, pipe, bg_color : torch.Tenso
         colors_precomp = override_color
         
     features_precomp = torch.cat((colors_precomp, pc.get_language_feature), dim = 1) #######
-
+    #print('features_precomp: ',features_precomp.shape)
+    new_features = pc.linear_model(features_precomp)
     #ratios = torch.nn.Parameter(torch.randn(3))
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     rendered_image, radii = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
-        colors_precomp = features_precomp,
+        colors_precomp = new_features,###### features_precomp,
         opacities = opacity,
         scales = scales,
-        #ratios = ratios,
+        #ratios = ratios, #######
         rotations = rotations,
         cov3D_precomp = cov3D_precomp)
 
