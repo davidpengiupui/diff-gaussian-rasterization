@@ -53,6 +53,7 @@ def render(viewpoint_camera, pc : GaussianModelNew, pipe, bg_color : torch.Tenso
     means3D = pc.get_xyz
     means2D = screenspace_points
     opacity = pc.get_opacity
+    lancity = pc.get_lancity #######
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
@@ -95,6 +96,7 @@ def render(viewpoint_camera, pc : GaussianModelNew, pipe, bg_color : torch.Tenso
         shs = shs,
         colors_precomp = new_features,###### features_precomp,
         opacities = opacity,
+        lancities = lancity,
         scales = scales,
         #ratios = ratios, #######
         rotations = rotations,
