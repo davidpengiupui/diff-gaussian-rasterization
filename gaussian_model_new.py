@@ -267,7 +267,7 @@ class GaussianModelNew:
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
-        self._opacity = nn.Parameter(lancities.requires_grad_(True))
+        self._lancity = nn.Parameter(lancities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def training_setup(self, training_args): #######
