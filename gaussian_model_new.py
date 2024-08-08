@@ -10,9 +10,9 @@
 #
 
 import torch
+import torch.nn as nn
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
-from torch import nn
 import os
 from utils.system_utils import mkdir_p
 from plyfile import PlyData, PlyElement
@@ -21,29 +21,54 @@ from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 
-'''
 
-class LinearNetwork(nn.Module):
+class LinearNetwork(torch.nn.Module):
     def __init__(self):
         super(LinearNetwork, self).__init__()
         
         # Define layers
-        self.fc = nn.Linear(17 * 3, 16 * 3)  # Flatten input
+        self.fc1 = torch.nn.Linear(6, 64)  # Flatten input
+        self.relu = torch.nn.ReLU()
+        self.fc2 = torch.nn.Linear(64, 6)
         # Output has 16 * 3 = 48 units
 
     def forward(self, x):
         # Flatten input
-        x = x.view(-1, 17 * 3)
+        #x = x.view(-1, 17 * 3)
+        
+        # Forward pass
+        y = self.relu(self.fc1(x))
+        y = self.fc2(y)
+
+        y += x
+        
+        # Reshape output to (batch_size, 4, 3)
+        #x = x.view(-1, 16, 3)
+        
+        return y
+
+'''
+class LinearNetwork(torch.nn.Module):
+    def __init__(self):
+        super(LinearNetwork, self).__init__()
+        
+        # Define layers
+        self.fc = torch.nn.Linear(6, 6)  # Flatten input
+        # Output has 16 * 3 = 48 units
+
+    def forward(self, x):
+        # Flatten input
+        #x = x.view(-1, 17 * 3)
         
         # Forward pass
         x = self.fc(x)
         
         # Reshape output to (batch_size, 4, 3)
-        x = x.view(-1, 16, 3)
+        #x = x.view(-1, 16, 3)
         
         return x
-        
-'''
+'''        
+
 
 class GaussianModelNew:
 
@@ -83,9 +108,9 @@ class GaussianModelNew:
         self._language_feature = None          #######
         self.setup_functions()
 
-        #self.linear_model = LinearNetwork().cuda()   #######
-        #self.linear_lr = 1e-4 #######
-        #self.linear_opt = torch.optim.SGD(self.linear_model.parameters(), lr=self.linear_lr, momentum=0.9) #######
+        self.linear_model = LinearNetwork().cuda()   #######
+        self.linear_lr = 1e-4 #######
+        self.linear_opt = torch.optim.SGD(self.linear_model.parameters(), lr=self.linear_lr, momentum=0.9) #######
 
     def capture(self, include_feature=True):
         if include_feature:
@@ -105,9 +130,9 @@ class GaussianModelNew:
                 self.optimizer.state_dict(),
                 self.spatial_lr_scale,
 
-                #self.linear_model.state_dict(),    #######
-                #self.linear_lr,                    #######
-                #self.linear_opt.state_dict(),      #######
+                self.linear_model.state_dict(),    #######
+                self.linear_lr,                    #######
+                self.linear_opt.state_dict(),      #######
 
             )
         else:
@@ -126,8 +151,8 @@ class GaussianModelNew:
                 self.spatial_lr_scale,
             )
     
-    def restore(self, model_args, training_args):
-        if len(model_args) == 13:
+    def restore(self, model_args, training_args, mode='train'):
+        if len(model_args) == 16:
             (self.active_sh_degree, 
             self._xyz, 
             self._features_dc, 
@@ -141,12 +166,12 @@ class GaussianModelNew:
             denom,
             opt_dict, 
             self.spatial_lr_scale,
-            #linear_model_dict,      #######
-            #self.linear_lr,         #######
-            #linear_opt_dict,        #######
+            linear_model_dict,      #######
+            self.linear_lr,         #######
+            linear_opt_dict,        #######
             ) = model_args
-            #self.linear_model.load_state_dict(linear_model_dict)
-            #self.linear_opt.load_state_dict(linear_opt_dict)
+            self.linear_model.load_state_dict(linear_model_dict)
+            self.linear_opt.load_state_dict(linear_opt_dict)
         elif len(model_args) == 12:
             (self.active_sh_degree, 
             self._xyz, 
@@ -163,10 +188,12 @@ class GaussianModelNew:
             ) = model_args
             if not training_args.include_feature: # 如果是以原始gs为初始化来训练feature的话，就不需要restore optimizer
                 self.optimizer.load_state_dict(opt_dict)
-        self.training_setup(training_args)
-        self.xyz_gradient_accum = xyz_gradient_accum
-        self.denom = denom
-        self.optimizer.load_state_dict(opt_dict)
+        
+        if mode == 'train':
+            self.training_setup(training_args)
+            self.xyz_gradient_accum = xyz_gradient_accum
+            self.denom = denom
+            self.optimizer.load_state_dict(opt_dict)
 
     @property
     def get_scaling(self):
@@ -405,15 +432,18 @@ class GaussianModelNew:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        self._language_feature = optimizable_tensors["language_feature"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
     
+    '''
     def prune_language(self, mask): #######
         valid_points_mask = ~mask
         self._language_feature = self._language_feature[valid_points_mask]
+    '''
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
@@ -437,13 +467,14 @@ class GaussianModelNew:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_language_feature):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
         "opacity": new_opacities,
         "scaling" : new_scaling,
-        "rotation" : new_rotation}
+        "rotation" : new_rotation,
+        "language_feature": new_language_feature}
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
@@ -452,15 +483,18 @@ class GaussianModelNew:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        self._language_feature = optimizable_tensors["language_feature"]
 
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
+    '''
     def densification_language(self, new_lan): #######
         if new_lan is not None:
             old_lan = self._language_feature
             self._language_feature = nn.Parameter(torch.cat((old_lan, new_lan), dim=0).requires_grad_(True))
+    '''
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         n_init_points = self.get_xyz.shape[0]
@@ -483,12 +517,12 @@ class GaussianModelNew:
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
         new_language_feature = self._language_feature[selected_pts_mask].repeat(N,1) #######
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
-        self.densification_language(new_language_feature) #######
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_language_feature)
+        #self.densification_language(new_language_feature) #######
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
-        self.prune_language(prune_filter) #######
+        #self.prune_language(prune_filter) #######
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         # Extract points that satisfy the gradient condition
@@ -504,8 +538,8 @@ class GaussianModelNew:
         new_rotation = self._rotation[selected_pts_mask]
         new_language_feature = self._language_feature[selected_pts_mask] #######
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
-        self.densification_language(new_language_feature) #######
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_language_feature)
+        #self.densification_language(new_language_feature) #######
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         grads = self.xyz_gradient_accum / self.denom
@@ -520,7 +554,7 @@ class GaussianModelNew:
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         self.prune_points(prune_mask)
-        self.prune_language(prune_mask) #######
+        #self.prune_language(prune_mask) #######
 
         torch.cuda.empty_cache()
 
